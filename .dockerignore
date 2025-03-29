@@ -1,0 +1,25 @@
+# Fichiers build Maven
+target/
+!target/*.jar
+
+# Fichiers IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Fichiers Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Logs
+logs/
+*.log
+
+# Divers
+.git/
+.github/
+README.md
