@@ -2,22 +2,20 @@ FROM eclipse-temurin:17-jdk-alpine AS build
 
 WORKDIR /workspace/app
 
-# Copie du pom.xml et des scripts mvnw pour télécharger les dépendances sans code source
-COPY mvnw .
-COPY .mvn .mvn
+# Copier seulement le pom.xml d'abord
 COPY pom.xml .
 
-# Rendre le script mvnw exécutable
-RUN chmod +x ./mvnw
+# Installer Maven directement plutôt que d'utiliser le wrapper
+RUN apk add --no-cache maven
 
 # Téléchargement des dépendances (cache optimisé pour Docker)
-RUN ./mvnw dependency:go-offline -B
+RUN mvn dependency:go-offline -B
 
 # Copie du code source
 COPY src src
 
 # Construction du JAR
-RUN ./mvnw package -DskipTests
+RUN mvn package -DskipTests
 RUN mkdir -p target/dependency && (cd target/dependency; jar -xf ../*.jar)
 
 # Image finale optimisée
