@@ -1,0 +1,40 @@
+name: Build and Test Docker Image
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+        
+    - name: Build with Maven
+      run: ./mvnw clean package -DskipTests
+      
+    - name: Run tests
+      run: ./mvnw test
+      
+    - name: Build Docker image
+      run: docker build -t stock-management-api:latest .
+      
+    - name: Test Docker image
+      run: |
+        docker run -d --name stock-api-test -p 8080:8080 stock-management-api:latest
+        # Attendre que l'application démarre
+        sleep 30
+        # Vérifier si l'application répond
+        curl --fail http://localhost:8080/swagger-ui.html || exit 1
+        # Arrêter le conteneur
+        docker stop stock-api-test
