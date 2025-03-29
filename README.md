@@ -24,6 +24,7 @@ Une API REST de gestion de stock en Java/Spring Boot, évolutive et modulaire. C
 - Documentation API intégrée via Swagger UI
 - Tests unitaires pour les services et contrôleurs
 - Conteneurisation avec Docker
+- Réinitialisation automatique des données toutes les 5 minutes (dev)
 
 ## Structure du projet
 
@@ -33,7 +34,8 @@ src
 │   ├── java
 │   │   └── com/inventory/stockmanagementapi
 │   │       ├── config
-│   │       │   └── DataInitializer.java
+│   │       │   ├── DataInitializer.java
+│   │       │   └── DataResetScheduler.java
 │   │       ├── controller
 │   │       │   ├── CategoryController.java
 │   │       │   └── ProductController.java
@@ -118,8 +120,8 @@ cd stock-management-api
 # Construction de l'image Docker
 docker build -t stock-management-api .
 
-# Exécution du conteneur (mode production par défaut)
-docker run -p 8080:8080 stock-management-api
+# Exécution du conteneur (mode développement pour avoir les données de test et la réinitialisation)
+docker run -p 8080:8080 -e "SPRING_PROFILES_ACTIVE=dev" stock-management-api
 ```
 
 #### Avec Docker Compose
@@ -140,7 +142,7 @@ docker-compose down
 
 L'application dispose de plusieurs profils pour s'adapter à différents environnements :
 
-- `dev` (développement, par défaut) : Logging détaillé, données de test chargées automatiquement
+- `dev` (développement, par défaut) : Logging détaillé, données de test chargées automatiquement, réinitialisation des données toutes les 5 minutes
 - `prod` (production) : Logging minimal, pas de données de test, optimisations de performances
 
 Pour lancer l'application avec un profil spécifique :
@@ -169,6 +171,17 @@ Une fois l'application lancée, vous pouvez y accéder via les URLs suivantes :
   - JDBC URL : `jdbc:h2:mem:stockdb`
   - Utilisateur : `sa`
   - Mot de passe : `password`
+
+## Comportement des données
+
+En mode développement (`dev`), l'application :
+1. Charge automatiquement des données de test au démarrage
+2. Réinitialise complètement les données toutes les 5 minutes
+3. Cette réinitialisation supprime toutes les modifications apportées et recrée un jeu de données frais
+
+Les données initiales comprennent :
+- 6 catégories : Electronics, Clothing, Food & Beverages, Office Supplies, Sports & Outdoors, Beauty & Personal Care
+- Plus de 20 produits répartis dans ces catégories
 
 ## Déploiement en production
 
@@ -252,13 +265,6 @@ curl -X PATCH "http://localhost:8080/api/products/stock" \
     "operationType": "ADD"
   }'
 ```
-
-## Données de test
-
-En mode développement (`dev`), l'application charge automatiquement des données de test avec :
-
-- 4 catégories : Electronics, Clothing, Food & Beverages, Office Supplies
-- 10 produits répartis dans ces catégories
 
 ## Évolution et extensions
 
