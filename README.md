@@ -11,6 +11,7 @@ Une API REST de gestion de stock en Java/Spring Boot, évolutive et modulaire. C
 - H2 Database (base de données intégrée)
 - Bean Validation
 - OpenAPI/Swagger pour la documentation des API
+- Docker et Docker Compose pour la conteneurisation
 
 ## Fonctionnalités
 
@@ -22,6 +23,7 @@ Une API REST de gestion de stock en Java/Spring Boot, évolutive et modulaire. C
 - Identification des produits à faible stock
 - Documentation API intégrée via Swagger UI
 - Tests unitaires pour les services et contrôleurs
+- Conteneurisation avec Docker
 
 ## Structure du projet
 
@@ -74,6 +76,7 @@ src
 
 - Java 17 ou supérieur
 - Maven 3.8+ ou Gradle 7+
+- Docker et Docker Compose (pour l'utilisation containerisée)
 
 ### Compilation et exécution
 
@@ -105,6 +108,34 @@ cd stock-management-api
 ./gradlew bootRun
 ```
 
+#### Avec Docker
+
+```bash
+# Cloner le dépôt
+git clone https://github.com/creach-t/stock-management-api.git
+cd stock-management-api
+
+# Construction de l'image Docker
+docker build -t stock-management-api .
+
+# Exécution du conteneur (mode production par défaut)
+docker run -p 8080:8080 stock-management-api
+```
+
+#### Avec Docker Compose
+
+```bash
+# Cloner le dépôt
+git clone https://github.com/creach-t/stock-management-api.git
+cd stock-management-api
+
+# Démarrer l'application avec Docker Compose
+docker-compose up -d
+
+# Pour arrêter l'application
+docker-compose down
+```
+
 ### Profils de configuration
 
 L'application dispose de plusieurs profils pour s'adapter à différents environnements :
@@ -123,6 +154,9 @@ Pour lancer l'application avec un profil spécifique :
 
 # Avec le JAR
 java -jar target/stock-management-api-0.1.0.jar --spring.profiles.active=prod
+
+# Avec Docker
+docker run -p 8080:8080 -e "SPRING_PROFILES_ACTIVE=prod" stock-management-api
 ```
 
 ## Accès à l'application
@@ -135,6 +169,25 @@ Une fois l'application lancée, vous pouvez y accéder via les URLs suivantes :
   - JDBC URL : `jdbc:h2:mem:stockdb`
   - Utilisateur : `sa`
   - Mot de passe : `password`
+
+## Déploiement en production
+
+Le projet est configuré pour être déployé en production avec Docker. Le fichier `docker-compose.yml` inclut:
+- Le service API Spring Boot
+- Une configuration optionnelle pour utiliser PostgreSQL au lieu de H2
+- Une configuration optionnelle pour Adminer (administration de la base de données)
+
+Pour passer de la base de données H2 intégrée à PostgreSQL :
+1. Décommentez les sections correspondantes dans le fichier `docker-compose.yml`
+2. Décommentez les variables d'environnement pour la connexion à la base de données
+3. Ajoutez la dépendance PostgreSQL dans le `pom.xml`
+```xml
+<dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
+    <scope>runtime</scope>
+</dependency>
+```
 
 ## Endpoints API
 
