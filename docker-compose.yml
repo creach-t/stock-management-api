@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # Service principal - API Spring Boot
+  stock-api:
+    build: .
+    image: stock-management-api:latest
+    container_name: stock-api
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      # Pour une utilisation avec une base de données externe en production,
+      # décommentez et configurez les variables ci-dessous
+      # - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/stockdb
+      # - SPRING_DATASOURCE_USERNAME=postgres
+      # - SPRING_DATASOURCE_PASSWORD=postgres
+    restart: unless-stopped
+    # Pour une utilisation avec une base de données externe, décommentez:
+    # depends_on:
+    #   - db
+    volumes:
+      - api-logs:/logs
+
+  # Base de données PostgreSQL pour la production
+  # Décommentez cette section pour utiliser PostgreSQL au lieu de H2 intégré
+  # db:
+  #   image: postgres:14-alpine
+  #   container_name: stock-db
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   environment:
+  #     - POSTGRES_DB=stockdb
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_PASSWORD=postgres
+  #   ports:
+  #     - "5432:5432"
+  #   restart: unless-stopped
+
+  # Adminer - Interface d'administration de la base de données
+  # Décommentez cette section si vous utilisez PostgreSQL
+  # adminer:
+  #   image: adminer
+  #   container_name: stock-adminer
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8081:8080"
+  #   depends_on:
+  #     - db
+
+volumes:
+  api-logs:
+  # postgres-data:
