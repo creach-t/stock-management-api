@@ -9,8 +9,8 @@ pipeline {
     stages {
         stage('Pull Latest Code') {
             steps {
-                sh '''
-                    cd /chemin/vers/stock-management-api
+                bat '''
+                    cd C:\\chemin\\vers\\stock-management-api
                     git pull origin main
                 '''
             }
@@ -18,8 +18,8 @@ pipeline {
         
         stage('Build Docker Image') {
             steps {
-                sh '''
-                    cd /chemin/vers/stock-management-api
+                bat '''
+                    cd C:\\chemin\\vers\\stock-management-api
                     docker-compose build
                 '''
             }
@@ -27,8 +27,8 @@ pipeline {
         
         stage('Deploy') {
             steps {
-                sh '''
-                    cd /chemin/vers/stock-management-api
+                bat '''
+                    cd C:\\chemin\\vers\\stock-management-api
                     docker-compose down
                     docker-compose up -d
                 '''
@@ -37,15 +37,15 @@ pipeline {
         
         stage('Verify Deployment') {
             steps {
-                sh '''
-                    # Attendre que le conteneur soit prêt
-                    sleep 15
+                bat '''
+                    @REM Attendre que le conteneur soit prêt
+                    timeout /t 15
                     
-                    # Vérifier si le conteneur est en cours d'exécution
-                    docker ps | grep stock-api
+                    @REM Vérifier si le conteneur est en cours d'exécution
+                    docker ps | findstr stock-api
                     
-                    # Test simple pour vérifier que l'API répond
-                    curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/categories | grep 200
+                    @REM Test simple pour vérifier que l'API répond
+                    curl -s -o nul -w "%%{http_code}" http://localhost:8080/api/categories | findstr 200
                 '''
             }
         }
