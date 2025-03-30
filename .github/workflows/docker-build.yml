@@ -20,6 +20,13 @@ jobs:
         distribution: 'temurin'
         cache: maven
     
+    - name: Create .mvn directory if not exists
+      run: mkdir -p .mvn/wrapper
+        
+    - name: Download Maven Wrapper JAR
+      run: |
+        curl -L "https://repo.maven.apache.org/maven2/org/apache/maven/wrapper/maven-wrapper/3.2.0/maven-wrapper-3.2.0.jar" -o ".mvn/wrapper/maven-wrapper.jar"
+    
     - name: Grant execute permission for mvnw
       run: chmod +x ./mvnw
         
