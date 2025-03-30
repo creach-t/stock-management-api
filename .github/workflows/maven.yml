@@ -29,3 +29,9 @@ jobs:
     # Optional: Uploads the full dependency graph to GitHub to improve the quality of Dependabot alerts this repository can receive
     - name: Update dependency graph
       uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
+      
+    # Trigger Jenkins deployment job
+    - name: Trigger Jenkins Deployment
+      if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        curl -X POST "http://ADRESSE_JENKINS/job/NOM_DU_JOB/build?token=TON_TOKEN_JENKINS"
