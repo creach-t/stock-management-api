@@ -14,8 +14,14 @@ REM git pull origin main
 
 echo Simulation: Construction et demarrage avec Docker...
 docker-compose down -v
+
+REM Modifier le port dans le fichier docker-compose.yml
+echo Modification du port pour utiliser 9998...
+powershell -Command "(Get-Content docker-compose.yml) -replace '\"8080:8080\"', '\"9998:8080\"' | Set-Content docker-compose.yml"
+
+REM Construction et démarrage avec le nouveau port
 docker-compose build --pull
 docker-compose up -d
 
-REM Vérifier le déploiement
 echo Test de deploiement termine a %date% %time%
+echo Application accessible sur http://localhost:9998
