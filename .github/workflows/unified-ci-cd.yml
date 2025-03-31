@@ -6,11 +6,15 @@ on:
   pull_request:
     branches: [ "main" ]
 
+env:
+  # Variable pour déterminer le mode de déploiement (local ou ssh)
+  # Valeurs possibles: "local" ou "ssh"
+  DEPLOY_MODE: ${{ vars.DEPLOY_MODE || 'local' }}
+
 jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
-    # Ajout des permissions nécessaires si besoin ultérieur de générer le graphe de dépendances
     permissions:
       contents: read
     
@@ -30,9 +34,6 @@ jobs:
     
     - name: Run tests
       run: mvn test
-      
-    # L'action de soumission de dépendances Maven a été supprimée car elle génère des erreurs
-    # Nous pourrons la réactiver ultérieurement si nécessaire avec les permissions appropriées
       
     - name: Upload build artifact
       if: success()
@@ -129,12 +130,11 @@ jobs:
         path: stock-api-image.tar
         retention-days: 1
 
-  deploy-local:
-    name: Deploy to Local Development
+  deploy:
+    name: Deploy Application
     needs: docker-build
     runs-on: ubuntu-latest
-    # Exécute ce job uniquement pour les branches autres que main (développement local)
-    if: success() && github.ref != 'refs/heads/main' && github.event_name == 'push'
+    if: success() && github.event_name == 'push'
     
     steps:
     - name: Checkout code
@@ -149,14 +149,22 @@ jobs:
     - name: Load Docker image
       run: |
         docker load < stock-api-image.tar
-        
+    
+    # Étape conditionnelle pour déploiement local
     - name: Deploy locally
+      if: env.DEPLOY_MODE == 'local'
       run: |
+        echo "Mode de déploiement: LOCAL"
+        
         # Arrêter les conteneurs existants s'ils existent
         docker-compose down || true
         
-        # Lancer en mode développement
-        SPRING_PROFILES_ACTIVE=dev docker-compose up -d
+        # Variables d'environnement pour le déploiement
+        ENV_PROFILE="${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+        echo "Profil Spring utilisé: $ENV_PROFILE"
+        
+        # Lancer avec le profil approprié
+        SPRING_PROFILES_ACTIVE=$ENV_PROFILE docker-compose up -d
         
         # Vérifier le déploiement
         echo "Attente du démarrage de l'application..."
@@ -177,34 +185,30 @@ jobs:
         
         echo "Déploiement local terminé avec succès à $(date)"
         echo "Application accessible à http://localhost:8080"
-
-  deploy-production:
-    name: Deploy to Production
-    needs: docker-build
-    runs-on: ubuntu-latest
-    # Exécute ce job uniquement pour la branche main (production)
-    if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
     
-    steps:
-    - name: Checkout code for deploy scripts
-      uses: actions/checkout@v4
-      
-    - name: Deploy using SSH
+    # Étape conditionnelle pour déploiement SSH
+    - name: Deploy via SSH
+      if: env.DEPLOY_MODE == 'ssh'
       uses: appleboy/ssh-action@master
       with:
         host: ${{ secrets.DEPLOY_HOST }}
         username: ${{ secrets.DEPLOY_USERNAME }}
         key: ${{ secrets.DEPLOY_SSH_KEY }}
         script: |
+          echo "Mode de déploiement: SSH REMOTE"
           cd /opt/stock-management-api
           
           # Récupérer les dernières modifications
           git pull origin main
           
+          # Variables d'environnement pour le déploiement
+          ENV_PROFILE="${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+          echo "Profil Spring utilisé: $ENV_PROFILE"
+          
           # Mettre à jour et redémarrer les conteneurs
           docker-compose down
           docker-compose build --pull
-          SPRING_PROFILES_ACTIVE=prod docker-compose up -d
+          SPRING_PROFILES_ACTIVE=$ENV_PROFILE docker-compose up -d
           
           # Vérifier le déploiement
           sleep 15
@@ -224,4 +228,4 @@ jobs:
             exit 1
           fi
           
-          echo "Déploiement en production terminé avec succès à $(date)"
+          echo "Déploiement terminé avec succès à $(date)"
