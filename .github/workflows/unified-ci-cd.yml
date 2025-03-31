@@ -7,9 +7,13 @@ on:
     branches: [ "main" ]
 
 env:
-  # Variable pour déterminer le mode de déploiement (local ou ssh)
-  # Valeurs possibles: "local" ou "ssh"
+  # Variable pour déterminer le mode de déploiement (local ou jenkins)
+  # Valeurs possibles: "local" ou "jenkins"
   DEPLOY_MODE: ${{ vars.DEPLOY_MODE || 'local' }}
+  # URL du serveur Jenkins (défini par défaut si non fourni dans les variables)
+  JENKINS_URL: ${{ vars.JENKINS_URL || 'http://localhost:8080' }}
+  # Nom du job Jenkins à déclencher
+  JENKINS_JOB: "test-stock-api-deploy"
 
 jobs:
   build-and-test:
@@ -101,86 +105,55 @@ jobs:
       with:
         name: docker-image
         path: ./
-        
-    - name: Load Docker image
+      
+    # Étape conditionnelle pour déploiement via Jenkins
+    - name: Trigger Jenkins Job
+      if: env.DEPLOY_MODE == 'jenkins'
       run: |
-        docker load < stock-api-image.tar
+        echo "Mode de déploiement: JENKINS"
+        echo "Déclenchement du job Jenkins: $JENKINS_JOB"
         
-    - name: Verify Docker image
-      run: |
-        # Démarrer le conteneur avec des variables d'environnement de test
-        docker run -d --name stock-api-test -p 8080:8080 \
-          -e "SPRING_PROFILES_ACTIVE=dev" \
-          stock-management-api:latest
-          
-        # Afficher les logs pour le diagnostic
-        echo "Conteneur démarré, affichage des premiers logs :"
-        sleep 5
-        docker logs stock-api-test
+        # Variables pour la requête Jenkins
+        JENKINS_TOKEN="${{ secrets.JENKINS_TOKEN }}"
+        JENKINS_USER="${{ secrets.JENKINS_USER }}"
         
-        # Vérification de la santé du conteneur
-        echo "Attente du démarrage de l'application..."
+        if [ -z "$JENKINS_TOKEN" ] || [ -z "$JENKINS_USER" ]; then
+          echo "ERREUR: Les secrets JENKINS_TOKEN et JENKINS_USER doivent être configurés."
+          exit 1
+        fi
         
-        # Augmentation du délai d'attente
-        for i in {1..60}; do
-          echo "Tentative $i de connexion à l'API..."
-          
-          RESULT=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/categories || echo "ERROR")
-          
-          if [ "$RESULT" = "200" ]; then
-            echo "L'application a démarré avec succès après $i secondes"
-            echo "Test de l'API réussi avec statut HTTP $RESULT"
-            
-            # Afficher les catégories disponibles
-            echo "Catégories disponibles :"
-            curl -s http://localhost:8080/api/categories
-            
-            # Arrêter le conteneur de test
-            docker stop stock-api-test
-            docker rm stock-api-test
-            break
-          fi
-          
-          # Si nous atteignons la dernière tentative, afficher les journaux et échouer
-          if [ $i -eq 60 ]; then
-            echo "L'application n'a pas démarré dans le délai imparti"
-            echo "Dernier statut HTTP: $RESULT"
-            echo "Affichage des journaux complets du conteneur:"
-            docker logs stock-api-test
-            docker stop stock-api-test
-            docker rm stock-api-test
-            
-            # Ne pas échouer - continuer avec le déploiement malgré l'échec de test
-            # On assume que c'est un problème de test et non du conteneur
-            echo "Continuons avec le déploiement malgré l'échec du test"
-          fi
-          
-          sleep 1
-        done
+        # Construire les paramètres supplémentaires si nécessaire
+        BRANCH_NAME="${{ github.ref_name }}"
+        COMMIT_SHA="${{ github.sha }}"
+        PARAMETERS="branch=$BRANCH_NAME&commit=$COMMIT_SHA"
+        
+        # Déclencher le job Jenkins avec les paramètres nécessaires
+        echo "Envoi de la requête à $JENKINS_URL/job/$JENKINS_JOB/buildWithParameters?$PARAMETERS&token=$JENKINS_TOKEN"
+        
+        RESPONSE=$(curl -s -w "%{http_code}" -X POST \
+          -u "$JENKINS_USER:$JENKINS_TOKEN" \
+          "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters?$PARAMETERS&token=$JENKINS_TOKEN")
+        
+        HTTP_STATUS=${RESPONSE: -3}
+        if [[ $HTTP_STATUS =~ ^(201|200)$ ]]; then
+          echo "Job Jenkins déclenché avec succès (HTTP $HTTP_STATUS)"
+        else
+          echo "Erreur lors du déclenchement du job Jenkins (HTTP $HTTP_STATUS)"
+          echo "Réponse: ${RESPONSE:0:${#RESPONSE}-3}"
+          exit 1
+        fi
+        
+        echo "Déploiement via Jenkins initié à $(date)"
+        echo "Consultez la console Jenkins pour suivre le déploiement"
     
-    # Installation manuelle de Docker Compose
-    - name: Install Docker Compose
-      run: |
-        # Version à installer
-        DOCKER_COMPOSE_VERSION=v2.23.0
-        
-        # Créer le répertoire (s'il n'existe pas)
-        sudo mkdir -p /usr/local/lib/docker/cli-plugins
-        
-        # Télécharger le binaire pour la plateforme Linux amd64
-        sudo curl -SL "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose
-        
-        # Rendre le binaire exécutable
-        sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-        
-        # Vérifier que Docker Compose est installé
-        docker compose version
-    
-    # Étape conditionnelle pour déploiement direct (sans docker-compose)
-    - name: Deploy with direct Docker commands
+    # Étape conditionnelle pour déploiement local direct
+    - name: Local Docker Deploy
       if: env.DEPLOY_MODE == 'local'
       run: |
-        echo "Mode de déploiement: LOCAL DIRECT (sans docker-compose)"
+        echo "Mode de déploiement: LOCAL DIRECT"
+        
+        # Charger l'image Docker
+        docker load < stock-api-image.tar
         
         # Variables d'environnement pour le déploiement
         ENV_PROFILE="${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
@@ -194,71 +167,10 @@ jobs:
           -e "SPRING_PROFILES_ACTIVE=$ENV_PROFILE" \
           stock-management-api:latest
         
-        # Vérifier le déploiement (ne pas échouer si ça ne répond pas immédiatement)
-        echo "Attente du démarrage de l'application..."
-        docker logs stock-api
-        
         echo "Déploiement local terminé avec succès à $(date)"
-        echo "Application devrait être accessible à http://localhost:8080"
-    
-    # Étape conditionnelle pour déploiement SSH
-    - name: Deploy via SSH
-      if: env.DEPLOY_MODE == 'ssh'
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.DEPLOY_HOST }}
-        username: ${{ secrets.DEPLOY_USERNAME }}
-        key: ${{ secrets.DEPLOY_SSH_KEY }}
-        script: |
-          echo "Mode de déploiement: SSH REMOTE"
-          cd /opt/stock-management-api
-          
-          # Récupérer les dernières modifications
-          git pull origin main
-          
-          # Variables d'environnement pour le déploiement
-          ENV_PROFILE="${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
-          echo "Profil Spring utilisé: $ENV_PROFILE"
-          
-          # Mettre à jour et redémarrer les conteneurs
-          export SPRING_PROFILES_ACTIVE=$ENV_PROFILE
-          
-          # Vérifier quelle version de docker-compose est disponible sur le serveur
-          if command -v docker compose &> /dev/null; then
-            docker compose down
-            docker compose build --pull
-            docker compose up -d
-          elif command -v docker-compose &> /dev/null; then
-            docker-compose down
-            docker-compose build --pull
-            docker-compose up -d
-          else
-            # Alternative: utiliser Docker directement si docker-compose n'est pas disponible
-            docker rm -f stock-api 2>/dev/null || true
-            docker build -t stock-management-api:latest .
-            docker run -d --name stock-api -p 8080:8080 \
-              -e "SPRING_PROFILES_ACTIVE=$ENV_PROFILE" \
-              stock-management-api:latest
-          fi
-          
-          # Vérifier le déploiement, mais continuer même en cas d'échec initial
-          sleep 15
-          
-          # Vérifier si le conteneur est en cours d'exécution
-          if ! docker ps | grep stock-api > /dev/null; then
-            echo "ATTENTION: Le conteneur ne semble pas être en cours d'exécution!"
-            docker logs stock-api 2>/dev/null || true
-            # Ne pas échouer ici
-          fi
-          
-          # Vérifier si l'API répond correctement
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/categories || echo "Pas de réponse")
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "ATTENTION: L'API n'est pas accessible (code HTTP: $HTTP_STATUS)!"
-            docker logs stock-api 2>/dev/null || true
-            # Ne pas échouer ici non plus
-          else
-            echo "L'API est accessible avec succès!"
-          fi
-          
-          echo "Déploiement terminé à $(date)"
+        echo "Application accessible à http://localhost:8080"
+        
+        # Afficher les logs pour vérifier le démarrage (sans bloquer)
+        echo "Logs du conteneur:"
+        sleep 2
+        docker logs stock-api
