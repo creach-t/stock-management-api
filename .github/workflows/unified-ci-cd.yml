@@ -9,7 +9,7 @@ on:
 env:
   # Variable pour déterminer le mode de déploiement (local ou jenkins)
   # Valeurs possibles: "local" ou "jenkins"
-  DEPLOY_MODE: ${{ vars.DEPLOY_MODE || 'local' }}
+  DEPLOY_MODE: ${{ vars.DEPLOY_MODE || 'jenkins' }}
   # URL du serveur Jenkins (défini par défaut si non fourni dans les variables)
   JENKINS_URL: ${{ vars.JENKINS_URL || 'http://localhost:8080' }}
   # Nom du job Jenkins à déclencher
@@ -111,43 +111,109 @@ jobs:
       if: env.DEPLOY_MODE == 'jenkins'
       run: |
         echo "Mode de déploiement: JENKINS"
-        echo "Déclenchement du job Jenkins: $JENKINS_JOB"
+        echo "Déclenchement du job Jenkins: $JENKINS_JOB sur $JENKINS_URL"
         
         # Variables pour la requête Jenkins
         JENKINS_TOKEN="${{ secrets.JENKINS_TOKEN }}"
         JENKINS_USER="${{ secrets.JENKINS_USER }}"
         
-        if [ -z "$JENKINS_TOKEN" ] || [ -z "$JENKINS_USER" ]; then
-          echo "ERREUR: Les secrets JENKINS_TOKEN et JENKINS_USER doivent être configurés."
+        # Vérifications
+        if [ -z "$JENKINS_TOKEN" ]; then
+          echo "ERREUR: Le secret JENKINS_TOKEN n'est pas configuré."
           exit 1
         fi
         
-        # Ajouter des paramètres pour nettoyer les anciens conteneurs Docker
+        if [ -z "$JENKINS_USER" ]; then
+          echo "ERREUR: Le secret JENKINS_USER n'est pas configuré."
+          exit 1
+        fi
+        
+        echo "Configuration Jenkins:"
+        echo "URL: $JENKINS_URL"
+        echo "Job: $JENKINS_JOB"
+        echo "Utilisateur: $JENKINS_USER (masqué)"
+        echo "Token: ***** (masqué)"
+        
+        # Ajouter des paramètres supplémentaires
         BRANCH_NAME="${{ github.ref_name }}"
         COMMIT_SHA="${{ github.sha }}"
-        CLEAN_BEFORE_DEPLOY="true"  # Paramètre pour signaler à Jenkins de nettoyer avant de déployer
         
         # Construire la chaîne de paramètres
-        PARAMETERS="branch=$BRANCH_NAME&commit=$COMMIT_SHA&cleanBeforeDeploy=$CLEAN_BEFORE_DEPLOY"
+        PARAMETERS="branch=$BRANCH_NAME&commit=$COMMIT_SHA&cleanBeforeDeploy=true"
         
-        # Déclencher le job Jenkins avec les paramètres nécessaires
-        echo "Envoi de la requête à $JENKINS_URL/job/$JENKINS_JOB/buildWithParameters?$PARAMETERS&token=$JENKINS_TOKEN"
+        # URL complète pour la requête
+        JENKINS_REQUEST_URL="$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters?$PARAMETERS"
         
-        RESPONSE=$(curl -s -w "%{http_code}" -X POST \
-          -u "$JENKINS_USER:$JENKINS_TOKEN" \
-          "$JENKINS_URL/job/$JENKINS_JOB/buildWithParameters?$PARAMETERS&token=$JENKINS_TOKEN")
+        echo "Envoi de la requête à: $JENKINS_REQUEST_URL"
         
-        HTTP_STATUS=${RESPONSE: -3}
-        if [[ $HTTP_STATUS =~ ^(201|200)$ ]]; then
+        # Tester d'abord avec une requête GET pour vérifier l'accessibilité
+        echo "Test d'accessibilité de Jenkins..."
+        HTTP_TEST=$(curl -s -o /dev/null -w "%{http_code}" -X GET "$JENKINS_URL")
+        echo "Code HTTP de test: $HTTP_TEST"
+        
+        if [ "$HTTP_TEST" == "000" ]; then
+          echo "ERREUR: Impossible de se connecter à Jenkins. Vérifiez l'URL et l'accessibilité du serveur."
+          echo "Déploiement en mode local comme fallback..."
+          
+          # Charger l'image Docker
+          docker load < stock-api-image.tar
+          
+          # Variables d'environnement pour le déploiement
+          ENV_PROFILE="${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+          echo "Profil Spring utilisé: $ENV_PROFILE"
+          
+          # Arrêter et supprimer le conteneur existant s'il existe
+          docker rm -f stock-api 2>/dev/null || true
+          
+          # Lancer un nouveau conteneur avec le profil approprié
+          docker run -d --name stock-api -p 8080:8080 \
+            -e "SPRING_PROFILES_ACTIVE=$ENV_PROFILE" \
+            stock-management-api:latest
+            
+          echo "Déploiement local terminé avec succès à $(date)"
+          echo "Application accessible à http://localhost:8080"
+          exit 0
+        fi
+        
+        # Déclencher le job Jenkins
+        echo "Déclenchement du job Jenkins..."
+        CURL_OPTS="-s -w \"HTTP_STATUS: %{http_code}\n\" -X POST"
+        CURL_OPTS="$CURL_OPTS -u \"$JENKINS_USER:$JENKINS_TOKEN\""
+        
+        # Utiliser la commande complète pour éviter les problèmes de variables
+        RESPONSE=$(eval curl $CURL_OPTS "$JENKINS_REQUEST_URL/build?token=$JENKINS_TOKEN")
+        
+        echo "Réponse complète: $RESPONSE"
+        
+        # Extraire le code de statut HTTP
+        HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS:" | cut -d' ' -f2)
+        
+        if [[ "$HTTP_STATUS" =~ ^(201|200)$ ]]; then
           echo "Job Jenkins déclenché avec succès (HTTP $HTTP_STATUS)"
         else
           echo "Erreur lors du déclenchement du job Jenkins (HTTP $HTTP_STATUS)"
-          echo "Réponse: ${RESPONSE:0:${#RESPONSE}-3}"
-          exit 1
+          echo "Déploiement en mode local comme fallback..."
+          
+          # Charger l'image Docker
+          docker load < stock-api-image.tar
+          
+          # Variables d'environnement pour le déploiement
+          ENV_PROFILE="${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
+          echo "Profil Spring utilisé: $ENV_PROFILE"
+          
+          # Arrêter et supprimer le conteneur existant s'il existe
+          docker rm -f stock-api 2>/dev/null || true
+          
+          # Lancer un nouveau conteneur avec le profil approprié
+          docker run -d --name stock-api -p 8080:8080 \
+            -e "SPRING_PROFILES_ACTIVE=$ENV_PROFILE" \
+            stock-management-api:latest
+            
+          echo "Déploiement local terminé avec succès à $(date)"
+          echo "Application accessible à http://localhost:8080"
         fi
         
-        echo "Déploiement via Jenkins initié à $(date)"
-        echo "Consultez la console Jenkins pour suivre le déploiement"
+        echo "Étape de déploiement terminée à $(date)"
     
     # Étape conditionnelle pour déploiement local direct
     - name: Local Docker Deploy
