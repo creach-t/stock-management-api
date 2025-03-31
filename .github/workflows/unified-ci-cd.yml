@@ -10,6 +10,9 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
+    # Ajout des permissions nécessaires si besoin ultérieur de générer le graphe de dépendances
+    permissions:
+      contents: read
     
     steps:
     - name: Checkout code
@@ -28,8 +31,8 @@ jobs:
     - name: Run tests
       run: mvn test
       
-    - name: Update dependency graph
-      uses: advanced-security/maven-dependency-submission-action@v3
+    # L'action de soumission de dépendances Maven a été supprimée car elle génère des erreurs
+    # Nous pourrons la réactiver ultérieurement si nécessaire avec les permissions appropriées
       
     - name: Upload build artifact
       if: success()
