@@ -150,6 +150,13 @@ jobs:
       run: |
         docker load < stock-api-image.tar
     
+    # Installation de Docker Compose
+    - name: Install Docker Compose
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y docker-compose-plugin
+        docker compose version
+    
     # Étape conditionnelle pour déploiement local
     - name: Deploy locally
       if: env.DEPLOY_MODE == 'local'
@@ -157,14 +164,15 @@ jobs:
         echo "Mode de déploiement: LOCAL"
         
         # Arrêter les conteneurs existants s'ils existent
-        docker-compose down || true
+        docker compose down || true
         
         # Variables d'environnement pour le déploiement
         ENV_PROFILE="${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
         echo "Profil Spring utilisé: $ENV_PROFILE"
         
         # Lancer avec le profil approprié
-        SPRING_PROFILES_ACTIVE=$ENV_PROFILE docker-compose up -d
+        export SPRING_PROFILES_ACTIVE=$ENV_PROFILE
+        docker compose up -d
         
         # Vérifier le déploiement
         echo "Attente du démarrage de l'application..."
@@ -176,7 +184,7 @@ jobs:
           
           if [ $i -eq 30 ]; then
             echo "L'application n'a pas démarré dans le délai imparti"
-            docker-compose logs
+            docker compose logs
             exit 1
           fi
           
@@ -206,9 +214,18 @@ jobs:
           echo "Profil Spring utilisé: $ENV_PROFILE"
           
           # Mettre à jour et redémarrer les conteneurs
-          docker-compose down
-          docker-compose build --pull
-          SPRING_PROFILES_ACTIVE=$ENV_PROFILE docker-compose up -d
+          export SPRING_PROFILES_ACTIVE=$ENV_PROFILE
+          
+          # Vérifier quelle version de docker-compose est disponible sur le serveur
+          if command -v docker compose &> /dev/null; then
+            docker compose down
+            docker compose build --pull
+            docker compose up -d
+          else
+            docker-compose down
+            docker-compose build --pull
+            docker-compose up -d
+          fi
           
           # Vérifier le déploiement
           sleep 15
@@ -216,7 +233,13 @@ jobs:
           # Vérifier si le conteneur est en cours d'exécution
           if ! docker ps | grep stock-api > /dev/null; then
             echo "ERREUR: Le conteneur n'est pas en cours d'exécution!"
-            docker-compose logs
+            
+            if command -v docker compose &> /dev/null; then
+              docker compose logs
+            else
+              docker-compose logs
+            fi
+            
             exit 1
           fi
           
@@ -224,7 +247,13 @@ jobs:
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/categories)
           if [ "$HTTP_STATUS" -ne 200 ]; then
             echo "ERREUR: L'API n'est pas accessible (code HTTP: $HTTP_STATUS)!"
-            docker-compose logs
+            
+            if command -v docker compose &> /dev/null; then
+              docker compose logs
+            else
+              docker-compose logs
+            fi
+            
             exit 1
           fi
           
