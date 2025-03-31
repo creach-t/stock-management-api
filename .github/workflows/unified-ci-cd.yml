@@ -150,29 +150,41 @@ jobs:
       run: |
         docker load < stock-api-image.tar
     
-    # Installation de Docker Compose
+    # Installation manuelle de Docker Compose
     - name: Install Docker Compose
       run: |
-        sudo apt-get update
-        sudo apt-get install -y docker-compose-plugin
+        # Version à installer
+        DOCKER_COMPOSE_VERSION=v2.23.0
+        
+        # Créer le répertoire (s'il n'existe pas)
+        sudo mkdir -p /usr/local/lib/docker/cli-plugins
+        
+        # Télécharger le binaire pour la plateforme Linux amd64
+        sudo curl -SL "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" -o /usr/local/lib/docker/cli-plugins/docker-compose
+        
+        # Rendre le binaire exécutable
+        sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+        
+        # Vérifier que Docker Compose est installé
         docker compose version
     
-    # Étape conditionnelle pour déploiement local
-    - name: Deploy locally
+    # Étape conditionnelle pour déploiement direct (sans docker-compose)
+    - name: Deploy with direct Docker commands
       if: env.DEPLOY_MODE == 'local'
       run: |
-        echo "Mode de déploiement: LOCAL"
-        
-        # Arrêter les conteneurs existants s'ils existent
-        docker compose down || true
+        echo "Mode de déploiement: LOCAL DIRECT (sans docker-compose)"
         
         # Variables d'environnement pour le déploiement
         ENV_PROFILE="${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
         echo "Profil Spring utilisé: $ENV_PROFILE"
         
-        # Lancer avec le profil approprié
-        export SPRING_PROFILES_ACTIVE=$ENV_PROFILE
-        docker compose up -d
+        # Arrêter et supprimer le conteneur existant s'il existe
+        docker rm -f stock-api 2>/dev/null || true
+        
+        # Lancer un nouveau conteneur avec le profil approprié
+        docker run -d --name stock-api -p 8080:8080 \
+          -e "SPRING_PROFILES_ACTIVE=$ENV_PROFILE" \
+          stock-management-api:latest
         
         # Vérifier le déploiement
         echo "Attente du démarrage de l'application..."
@@ -184,7 +196,7 @@ jobs:
           
           if [ $i -eq 30 ]; then
             echo "L'application n'a pas démarré dans le délai imparti"
-            docker compose logs
+            docker logs stock-api
             exit 1
           fi
           
@@ -221,10 +233,17 @@ jobs:
             docker compose down
             docker compose build --pull
             docker compose up -d
-          else
+          elif command -v docker-compose &> /dev/null; then
             docker-compose down
             docker-compose build --pull
             docker-compose up -d
+          else
+            # Alternative: utiliser Docker directement si docker-compose n'est pas disponible
+            docker rm -f stock-api 2>/dev/null || true
+            docker build -t stock-management-api:latest .
+            docker run -d --name stock-api -p 8080:8080 \
+              -e "SPRING_PROFILES_ACTIVE=$ENV_PROFILE" \
+              stock-management-api:latest
           fi
           
           # Vérifier le déploiement
@@ -233,13 +252,7 @@ jobs:
           # Vérifier si le conteneur est en cours d'exécution
           if ! docker ps | grep stock-api > /dev/null; then
             echo "ERREUR: Le conteneur n'est pas en cours d'exécution!"
-            
-            if command -v docker compose &> /dev/null; then
-              docker compose logs
-            else
-              docker-compose logs
-            fi
-            
+            docker logs stock-api 2>/dev/null || true
             exit 1
           fi
           
@@ -247,13 +260,7 @@ jobs:
           HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/categories)
           if [ "$HTTP_STATUS" -ne 200 ]; then
             echo "ERREUR: L'API n'est pas accessible (code HTTP: $HTTP_STATUS)!"
-            
-            if command -v docker compose &> /dev/null; then
-              docker compose logs
-            else
-              docker-compose logs
-            fi
-            
+            docker logs stock-api
             exit 1
           fi
           
