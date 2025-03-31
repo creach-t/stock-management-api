@@ -1,0 +1,161 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+        
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml
+    
+    - name: Run tests
+      run: mvn test
+      
+    - name: Update dependency graph
+      uses: advanced-security/maven-dependency-submission-action@v3
+      
+    - name: Upload build artifact
+      if: success()
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-jar
+        path: target/*.jar
+        retention-days: 1
+
+  docker-build:
+    name: Build and Verify Docker Image
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: success() && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download build artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: app-jar
+        path: target/
+        
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+      
+    - name: Cache Docker layers
+      uses: actions/cache@v3
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-buildx-
+      
+    - name: Build Docker image
+      run: |
+        docker build -t stock-management-api:${{ github.sha }} .
+        docker tag stock-management-api:${{ github.sha }} stock-management-api:latest
+      
+    - name: Test Docker image
+      run: |
+        # Démarrer le conteneur avec des variables d'environnement de test
+        docker run -d --name stock-api-test -p 8080:8080 \
+          -e "SPRING_PROFILES_ACTIVE=dev" \
+          stock-management-api:latest
+        
+        # Vérification de la santé du conteneur
+        echo "Attente du démarrage de l'application..."
+        for i in {1..30}; do
+          if curl -s http://localhost:8080/api/categories > /dev/null; then
+            echo "L'application a démarré avec succès après $i secondes"
+            break
+          fi
+          
+          if [ $i -eq 30 ]; then
+            echo "L'application n'a pas démarré dans le délai imparti"
+            docker logs stock-api-test
+            docker stop stock-api-test
+            docker rm stock-api-test
+            exit 1
+          fi
+          
+          sleep 1
+        done
+        
+        # Test fonctionnel simple
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/categories)
+        if [ "$HTTP_STATUS" -eq 200 ]; then
+          echo "Test de l'API réussi: Statut HTTP $HTTP_STATUS"
+        else
+          echo "Test de l'API échoué: Statut HTTP $HTTP_STATUS"
+          docker logs stock-api-test
+          docker stop stock-api-test
+          docker rm stock-api-test
+          exit 1
+        fi
+        
+        # Arrêter le conteneur
+        docker stop stock-api-test
+        docker rm stock-api-test
+
+  deploy:
+    name: Deploy to Production
+    needs: docker-build
+    runs-on: ubuntu-latest
+    if: success() && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code for deploy scripts
+      uses: actions/checkout@v4
+      
+    - name: Deploy using SSH
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USERNAME }}
+        key: ${{ secrets.DEPLOY_SSH_KEY }}
+        script: |
+          cd /opt/stock-management-api
+          
+          # Récupérer les dernières modifications
+          git pull origin main
+          
+          # Mettre à jour et redémarrer les conteneurs
+          docker-compose down
+          docker-compose build --pull
+          docker-compose up -d
+          
+          # Vérifier le déploiement
+          sleep 15
+          
+          # Vérifier si le conteneur est en cours d'exécution
+          if ! docker ps | grep stock-api > /dev/null; then
+            echo "ERREUR: Le conteneur n'est pas en cours d'exécution!"
+            docker-compose logs
+            exit 1
+          fi
+          
+          # Vérifier si l'API répond correctement
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/api/categories)
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "ERREUR: L'API n'est pas accessible (code HTTP: $HTTP_STATUS)!"
+            docker-compose logs
+            exit 1
+          fi
+          
+          echo "Déploiement terminé avec succès à $(date)"
