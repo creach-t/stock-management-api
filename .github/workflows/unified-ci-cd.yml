@@ -122,10 +122,13 @@ jobs:
           exit 1
         fi
         
-        # Construire les paramètres supplémentaires si nécessaire
+        # Ajouter des paramètres pour nettoyer les anciens conteneurs Docker
         BRANCH_NAME="${{ github.ref_name }}"
         COMMIT_SHA="${{ github.sha }}"
-        PARAMETERS="branch=$BRANCH_NAME&commit=$COMMIT_SHA"
+        CLEAN_BEFORE_DEPLOY="true"  # Paramètre pour signaler à Jenkins de nettoyer avant de déployer
+        
+        # Construire la chaîne de paramètres
+        PARAMETERS="branch=$BRANCH_NAME&commit=$COMMIT_SHA&cleanBeforeDeploy=$CLEAN_BEFORE_DEPLOY"
         
         # Déclencher le job Jenkins avec les paramètres nécessaires
         echo "Envoi de la requête à $JENKINS_URL/job/$JENKINS_JOB/buildWithParameters?$PARAMETERS&token=$JENKINS_TOKEN"
