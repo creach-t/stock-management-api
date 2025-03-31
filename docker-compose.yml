@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Service principal - API Spring Boot
   stock-api:
@@ -7,7 +5,7 @@ services:
     image: stock-management-api:latest
     container_name: stock-api
     ports:
-      - "8080:8080"
+      - "9998:8080"
     environment:
       - SPRING_PROFILES_ACTIVE=dev
       # Pour une utilisation avec une base de données externe en production,
